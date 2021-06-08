@@ -91,7 +91,7 @@ join max_seats_by_aircraft m on m.aircraft_code = b.aircraft_code;
 select 
 	a.model "Модель самолета",
 	count(f.flight_id) "Количество рейсов",
-	round(count(f.flight_id) / 
+	round(count(f.flight_id) /
 		(select 
 			count(f.flight_id)
 		from flights f 
@@ -100,7 +100,7 @@ select
 from aircrafts a 
 join flights f on f.aircraft_code = a.aircraft_code 
 where f.actual_departure is not null
-group by a.aircraft_code;
+group by a.model;
 
 -- 7	Были ли города, в которые можно  добраться бизнес - классом дешевле, чем эконом-классом в рамках перелета?	- CTE
 with prices_by_flight as (
@@ -127,11 +127,45 @@ group by pbf.flight_id, pbf.dep_city, pbf.arr_city
 having 	sum(pbf.amount) > 0
 
 
--- 8	Между какими городами нет прямых рейсов?	- Декартово произведение в предложении FROM
+-- 8	Между какими городами нет прямых рейсов?	
+-- - Декартово произведение в предложении FROM
 -- - Самостоятельно созданные представления
 -- - Оператор EXCEPT
+create view dep_arr_city as
+select distinct 
+	a.city departure_city,
+	a2.city arrival_city
+from flights f 
+join airports a on f.departure_airport = a.airport_code 
+join airports a2 on f.arrival_airport = a2.airport_code;
 
+select distinct 
+	a.city departure_city,
+	a2.city arrival_city 
+from airports a, airports a2 
+where a.city != a2.city
+except 
+select * from dep_arr_city
 
--- 9	Вычислите расстояние между аэропортами, связанными прямыми рейсами, сравните с допустимой максимальной дальностью перелетов  в самолетах, обслуживающих эти рейсы *	- Оператор RADIANS или использование sind/cosd
+-- 9	Вычислите расстояние между аэропортами, связанными прямыми рейсами, сравните с допустимой максимальной дальностью перелетов  
+-- в самолетах, обслуживающих эти рейсы *	- Оператор RADIANS или использование sind/cosd
 -- - CASE 
+select distinct 
+	ad.airport_name,
+	aa.airport_name,
+	a."range" "Дальность самолета",
+	round((acos(sind(ad.latitude) * sind(aa.latitude) + cosd(ad.latitude) * cosd(aa.latitude) * cosd(ad.longitude - aa.longitude)) * 6371)::dec, 2) "Расстояние",		
+	case when 
+		a."range" - 
+		acos(sind(ad.latitude) * sind(aa.latitude) + cosd(ad.latitude) * cosd(aa.latitude) * cosd(ad.longitude - aa.longitude)) * 6371 
+		< 0 
+		then 'Нет!'
+		else 'Да!'
+		end "Долетит?"
+from flights f
+join airports ad on f.departure_airport = ad.airport_code
+join airports aa on f.arrival_airport = aa.airport_code
+join aircrafts a on a.aircraft_code = f.aircraft_code 
+
+
 
