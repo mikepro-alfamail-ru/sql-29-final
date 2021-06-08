@@ -31,21 +31,16 @@ where f.aircraft_code = (
 
 -- 3	Вывести 10 рейсов с максимальным временем задержки вылета	- Оператор LIMIT
 /*
- * Два раза джойню таблицу аэропортов, чтобы получить аэропорт отправления и аэропорт прибытия.
  * Отбираю только те рейсы, которые вылетели (actual_departure заполнено)
  * Задержка считается простым вычитанием.
  * Наконец, сортировка по убыванию и ограничение вывода
  */
 select 
 	f.flight_id,
-	ad.airport_name "Departure Airport",
-	aa.airport_name "Arrival Airport",
 	f.scheduled_departure,
 	f.actual_departure,
 	f.actual_departure - f.scheduled_departure "Задержка"
 from flights f
-join airports ad on ad.airport_code = f.departure_airport 
-join airports aa on aa.airport_code = f.arrival_airport 
 where f.actual_departure is not null
 order by "Задержка" desc
 limit 10;
@@ -133,37 +128,43 @@ join flights f on f.aircraft_code = a.aircraft_code
 where f.actual_departure is not null
 group by a.model;
 
--- 7	Были ли города, в которые можно  добраться бизнес - классом дешевле, чем эконом-классом в рамках перелета?	- CTE
+-- 7	Были ли города, в которые можно  добраться бизнес - классом дешевле, чем эконом-классом в рамках перелета?	
+-- - CTE
 /*
- * В CTE prices_by_flight формируется таблица с рейсом, городом отправления и городом прибытия.
- * При этом проверяется класс билета и если он не эконом, стоимость указывается отрицательной
- * В основном запросе данные из CTE группируются по рейсу, стоимость суммируется, при этом положительная сумма указывает на
- * то, что эконом дороже бизнеса.
+ * В CTE prices собираются стоимости билетов на рейс: максимальная для Эконома и минимальная для бизнеса.
+ * Затем из него отбираются эти стоимости и группируются в одну строку по каждому аэропорту - это внешний
+ * CTE eco_busi. Результаты фильтруются по сравнению полей b_min_amount и e_max_amount
+ * Далее этот CTE джойнится с таблицами рейсов и аэропортов, чтобы достать из них города отправления и прибытия.
+ * Судя по тому, что результат пустой, таких рейсов нет
  */
-with prices_by_flight as (
-	select  distinct 
-		f.flight_id,
-		a.city dep_city,
-		a2.city arr_city,
-		case when tf.fare_conditions = 'Economy' 
-			then tf.amount 
-			else -tf.amount
-		end amount
-	from ticket_flights tf 
-	join flights f on tf.flight_id = f.flight_id 
-	join airports a on f.departure_airport = a.airport_code
-	join airports a2 on f.arrival_airport = a2.airport_code
-)
+with eco_busi as (
+	with prices as(
+		select  
+			f.flight_id,
+			case when tf.fare_conditions  = 'Business' then min(tf.amount) end b_min_amount,
+			case when tf.fare_conditions  = 'Economy' then max(tf.amount) end e_max_amount
+		from ticket_flights tf 
+		join flights f on tf.flight_id = f.flight_id 
+		group by 
+			f.flight_id, tf.fare_conditions
+	)
+	select 
+		p.flight_id,
+		min(p.b_min_amount),
+		max(p.e_max_amount)
+	from prices p
+		group by p.flight_id
+	having min(p.b_min_amount) < max(p.e_max_amount)
+	)
 select 
-	pbf.flight_id,
-	pbf.dep_city "Из",
-	pbf.arr_city "В",
-	sum(pbf.amount) "Бизнес дешевле на:"
-from prices_by_flight pbf
-group by pbf.flight_id, pbf.dep_city, pbf.arr_city
-having 	sum(pbf.amount) > 0
-
-
+	e.flight_id,
+	a.city depatrure_city,
+	a2.city arrival_city
+from eco_busi e 
+join flights f on e.flight_id = f.flight_id 
+join airports a on f.departure_airport = a.airport_code
+join airports a2 on f.arrival_airport = a2.airport_code
+	
 -- 8	Между какими городами нет прямых рейсов?	
 -- - Декартово произведение в предложении FROM
 -- - Самостоятельно созданные представления
