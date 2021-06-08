@@ -164,7 +164,37 @@ from eco_busi e
 join flights f on e.flight_id = f.flight_id 
 join airports a on f.departure_airport = a.airport_code
 join airports a2 on f.arrival_airport = a2.airport_code
-	
+
+/*
+ * Этот вариант смотрит стоимость билета между городами без учета рейса
+ * CTE max_min_by_city формирует минимальную стоимость по бизнес классу и муксимальную по эконому
+ * с группировкой по городу отправления и прибытия и по классу билета.
+ * результаты его отправляются во внешний запрос, который собирает минимум и максимум по двум городам
+ * в одну строку. В итоговом условии выводятся только те строки, в которых min(b_min_amount) < max(e_max_amount).
+ * Таких строк нет, так что и в этом случае бизнес всегда дороже эконома
+ */
+with max_min_by_city as(
+	select 
+		a.city dep_city,
+		a2.city arr_city,
+		tf.fare_conditions,
+		case when tf.fare_conditions  = 'Business' then min(tf.amount) end b_min_amount,
+		case when tf.fare_conditions  = 'Economy' then max(tf.amount) end e_max_amount
+	from flights f 
+	join ticket_flights tf on tf.flight_id = f.flight_id 
+	join airports a on f.departure_airport = a.airport_code
+	join airports a2 on f.arrival_airport = a2.airport_code
+	group by (1, 2), 3
+)
+select 
+	dep_city "Из", 
+	arr_city "В", 
+	min(b_min_amount) "Минимум за бизнес", 
+	max(e_max_amount) "Максимум за эконом"
+from max_min_by_city
+group by (1, 2)
+having min(b_min_amount) < max(e_max_amount);
+
 -- 8	Между какими городами нет прямых рейсов?	
 -- - Декартово произведение в предложении FROM
 -- - Самостоятельно созданные представления
